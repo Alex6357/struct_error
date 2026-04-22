@@ -1,0 +1,13 @@
+[package]
+name = "struct_error"
+version = "0.0.1"
+edition = "2024"
+description = "Modern, flat, zero-cost error flow based on pure struct errors."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alex6357/struct_error"
+keywords = ["error", "macro", "result", "error-handling"]
+categories = ["rust-patterns", "no-std"]
+
+[dependencies]
+struct_error_macros = { path = "../struct_error_macros", version = "0.0.1" }
+macro_magic = "0.6"

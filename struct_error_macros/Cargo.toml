@@ -1,0 +1,18 @@
+[package]
+name = "struct_error_macros"
+version = "0.0.1"
+edition = "2024"
+description = "Procedural macros for struct_error: #[error], #[united_error], #[throws], match_error!"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/alex6357/struct_error"
+keywords = ["macro", "proc-macro", "error", "error-handling"]
+categories = ["development-tools::procedural-macro-helpers", "rust-patterns"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit-mut"] }
+quote = "1"
+proc-macro2 = "1"
+macro_magic = "0.6"
