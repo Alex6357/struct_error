@@ -125,6 +125,74 @@ fn test_match_error_by_type() {
 }
 
 // ============================================================================
+// match_error! united error tests
+// ============================================================================
+
+#[error]
+pub struct UnitedA;
+
+#[error]
+pub struct UnitedB;
+
+#[united_error(UnitedA, UnitedB)]
+pub struct MyUnitedErr;
+
+#[throws(MyUnitedErr)]
+pub fn united_may_fail(which: u8) -> i32 {
+    match which {
+        1 => throw!(UnitedA),
+        2 => throw!(UnitedB),
+        _ => 42,
+    }
+}
+
+#[test]
+fn test_match_error_united_type() {
+    let r_a = united_may_fail(1);
+    let got_a = match_error!(r_a {
+        Ok(v) => format!("ok-{}", v),
+        MyUnitedErr => "united".to_string(),
+    });
+    assert_eq!(got_a, "united");
+
+    let r_b = united_may_fail(2);
+    let got_b = match_error!(r_b {
+        Ok(v) => format!("ok-{}", v),
+        MyUnitedErr => "united".to_string(),
+    });
+    assert_eq!(got_b, "united");
+}
+
+#[test]
+fn test_match_error_united_and_explicit() {
+    let r_a = united_may_fail(1);
+    let got_a = match_error!(r_a {
+        Ok(v) => format!("ok-{}", v),
+        UnitedA => "explicit-a".to_string(),
+        MyUnitedErr => "united".to_string(),
+    });
+    assert_eq!(got_a, "explicit-a");
+
+    let r_b = united_may_fail(2);
+    let got_b = match_error!(r_b {
+        Ok(v) => format!("ok-{}", v),
+        UnitedA => "explicit-a".to_string(),
+        MyUnitedErr => "united".to_string(),
+    });
+    assert_eq!(got_b, "united");
+}
+
+#[test]
+fn test_match_error_united_exhaustive() {
+    let r = united_may_fail(0);
+    let got = match_error!(r {
+        Ok(v) => v,
+        MyUnitedErr => 0,
+    });
+    assert_eq!(got, 42);
+}
+
+// ============================================================================
 // ? propagation tests
 // ============================================================================
 

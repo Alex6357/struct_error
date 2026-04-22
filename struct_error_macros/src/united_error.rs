@@ -1,8 +1,8 @@
 //! Implementation of the `#[united_error]` attribute macro.
 //!
 //! Defines compile-time aliases for error sets. The generated struct is a zero-sized type
-//! (ZST) annotated with `#[macro_magic::export_tokens]` and `#[__struct_error_members(...)]`,
-//! allowing `#[throws]` to expand the alias into its constituent error types.
+//! (ZST) annotated with `#[__struct_error_members(...)]` and registered in a global
+//! registry, allowing `#[throws]` and `match_error!` to expand the alias automatically.
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -30,14 +30,16 @@ pub(crate) fn united_error(attr: TokenStream, item: TokenStream) -> TokenStream 
         Err(e) => return e.to_compile_error().into(),
     };
 
+    // 注册到全局状态
+    let members_str: Vec<String> = members.iter().map(crate::sort::path_to_string).collect();
+    crate::registry::register_united_error(&ident.to_string(), members_str);
+
     // 生成 __struct_error_members 属性，编码成员列表（使用全限定路径避免用户导入）
     let members_attr = quote! {
         #[::struct_error::__struct_error_members(#(#members),*)]
     };
 
     let expanded = quote! {
-        // 核心动作：导出 AST 供其他宏读取
-        #[::macro_magic::export_tokens]
         #members_attr
         #vis struct #ident;
     };

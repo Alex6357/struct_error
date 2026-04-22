@@ -10,4 +10,3 @@ categories = ["rust-patterns", "no-std"]
 
 [dependencies]
 struct_error_macros = { path = "../struct_error_macros", version = "0.0.1" }
-macro_magic = "0.6"

@@ -1,8 +1,8 @@
 //! Implementation of the `#[error]` attribute macro.
 //!
 //! Automatically derives `Debug`, `Display`, and `std::error::Error` for the annotated struct.
-//! The key side effect is attaching `#[macro_magic::export_tokens]`, making the struct's
-//! AST readable by other macros in the `struct_error` ecosystem.
+//! Also registers the struct identifier in a global registry so other macros
+//! (`#[throws]` and `match_error!`) can resolve and expand it automatically.
 
 use proc_macro::TokenStream;
 use quote::{ToTokens, quote};
@@ -33,9 +33,10 @@ pub(crate) fn error(attr: TokenStream, item: TokenStream) -> TokenStream {
     // 提取结构体定义（去除 #[error] 属性本身以及字段上的 #[error_source]，避免递归和未知属性报错）
     let struct_def = strip_error_attrs(&item_ast);
 
+    // 注册到全局状态
+    crate::registry::register_error_type(&item_ast.ident.to_string());
+
     let expanded = quote! {
-        // 核心动作：导出 AST 供其他宏读取
-        #[::macro_magic::export_tokens]
         #derive_debug
         #struct_def
 

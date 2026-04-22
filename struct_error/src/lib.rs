@@ -117,6 +117,3 @@ macro_rules! throw {
 
 // 重新导出过程宏，用户只需 `use struct_error::{error, united_error, throws, match_error, throw};`
 pub use struct_error_macros::*;
-
-// 公开 macro_magic，确保 proc macro 生成的路径可解析
-pub extern crate macro_magic;

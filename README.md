@@ -121,12 +121,9 @@ Result<T, Unt<A, Unt<B, Unt<C, End>>>>
 
 where `End` is an uninhabited terminator that enables exhaustiveness checking.
 
-### Two-Phase Expansion
+### Global Registry
 
-`#[throws]` expands in two phases:
-
-1. **Phase 1** (`throws` proc macro): Uses `macro_magic::forward_tokens!` to collect the AST tokens of each error type.
-2. **Phase 2** (`__throws_impl`): Receives the collected tokens, deduplicates and sorts the error paths, generates the `Unt` return type, injects the local `__StructErrorInto` trait, and rewrites the function body AST to intercept `?` and wrap returns in `Ok`.
+`#[error]` and `#[united_error]` register their identifiers in a process-wide registry when expanded. `#[throws]` and `match_error!` query this registry to automatically expand united errors into their constituent members, eliminating the need for complex multi-phase macro expansion or manual member listing.
 
 ## License
 

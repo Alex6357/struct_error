@@ -6,9 +6,10 @@
 //! # Core behaviour
 //!
 //! 1. Extract all error match arms (everything except `Ok(...)`).
-//! 2. Blind-sort the error type paths.
-//! 3. Generate the corresponding `Unt` nested pattern for each arm based on its sort index.
-//! 4. Let the compiler perform exhaustiveness checking.
+//! 2. Expand any united error arms into their constituent members.
+//! 3. Blind-sort the error type paths.
+//! 4. Generate the corresponding `Unt` nested pattern for each arm based on its sort index.
+//! 5. Let the compiler perform exhaustiveness checking.
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -87,29 +88,78 @@ pub(crate) fn match_error(input: TokenStream) -> TokenStream {
                 .into();
             }
             ArmType::Unknown => {
-                return syn::Error::new_spanned(
-                    &arm.pat,
-                    "match_error: unsupported pattern type",
-                )
-                .to_compile_error()
-                .into();
+                return syn::Error::new_spanned(&arm.pat, "match_error: unsupported pattern type")
+                    .to_compile_error()
+                    .into();
             }
         }
     }
 
-    // 提取错误类型的路径（用于盲排序）
+    // 收集显式错误路径（用于检测联合类型展开冲突）
+    let mut explicit_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for arm in &error_arms {
+        if let Some(path) = extract_error_path(&arm.pat) {
+            explicit_paths.insert(crate::sort::path_to_string(&path));
+        }
+    }
+
+    // 展开联合类型并收集所有错误 arm 数据
     let mut error_paths: Vec<syn::Path> = Vec::new();
     let mut error_arm_data: Vec<ErrorArmData> = Vec::new();
 
     for arm in &error_arms {
         if let Some(path) = extract_error_path(&arm.pat) {
-            error_paths.push(path.clone());
-            error_arm_data.push(ErrorArmData {
-                path,
-                pat: arm.pat.clone(),
-                guard: arm.guard.clone(),
-                body: arm.body.clone(),
-            });
+            if crate::registry::is_united_error(&path) {
+                // 禁止捕获：联合类型匹配只能是 bare path
+                if !is_bare_path(&arm.pat) {
+                    return syn::Error::new_spanned(
+                        &arm.pat,
+                        "match_error: united error matching does not support capture; \
+                         use a bare path like `AppError => ...`",
+                    )
+                    .to_compile_error()
+                    .into();
+                }
+
+                // 展开联合类型为成员 arms
+                if let Some(members) = crate::registry::get_united_members(&path) {
+                    for member in members {
+                        if explicit_paths.contains(&member) {
+                            // 显式 arm 优先，跳过该成员的展开
+                            continue;
+                        }
+                        let member_path: syn::Path = match syn::parse_str(&member) {
+                            Ok(p) => p,
+                            Err(_) => {
+                                return syn::Error::new_spanned(
+                                    &arm.pat,
+                                    format!(
+                                        "match_error: invalid member path `{}` in united error",
+                                        member
+                                    ),
+                                )
+                                .to_compile_error()
+                                .into();
+                            }
+                        };
+                        error_paths.push(member_path.clone());
+                        error_arm_data.push(ErrorArmData {
+                            path: member_path.clone(),
+                            pat: make_bare_pat(&member_path),
+                            guard: arm.guard.clone(),
+                            body: arm.body.clone(),
+                        });
+                    }
+                }
+            } else {
+                error_paths.push(path.clone());
+                error_arm_data.push(ErrorArmData {
+                    path,
+                    pat: arm.pat.clone(),
+                    guard: arm.guard.clone(),
+                    body: arm.body.clone(),
+                });
+            }
         }
     }
 
@@ -165,10 +215,10 @@ pub(crate) fn match_error(input: TokenStream) -> TokenStream {
 enum ArmType {
     /// Ok(...) arm
     Ok,
-    /// 通配符或变量绑定（catch-all）
-    CatchAll,
     /// 错误类型匹配臂
     Error,
+    /// 通配符或变量绑定（catch-all）
+    CatchAll,
     /// 无法识别的模式
     Unknown,
 }
@@ -234,6 +284,26 @@ fn classify_pat(pat: &syn::Pat) -> ArmType {
         // 其他模式不支持
         _ => ArmType::Unknown,
     }
+}
+
+/// 检查模式是否是 bare path（无捕获）。
+/// 用于联合类型匹配：只允许 `AppError` 或 `AppError`（Pat::Ident），
+/// 不允许 `AppError(e)`、`AppError { .. }` 等。
+fn is_bare_path(pat: &syn::Pat) -> bool {
+    match pat {
+        syn::Pat::Path(_) => true,
+        syn::Pat::Ident(pi) if crate::sort::is_pascal_case(&pi.ident) => true,
+        _ => false,
+    }
+}
+
+/// 从路径生成一个 bare path pattern。
+fn make_bare_pat(path: &syn::Path) -> syn::Pat {
+    syn::Pat::Path(syn::PatPath {
+        attrs: Vec::new(),
+        qself: None,
+        path: path.clone(),
+    })
 }
 
 /// 剥离模式外层的 Err(...) 包装。若不存在则返回原模式。
