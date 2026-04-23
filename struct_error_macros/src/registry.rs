@@ -61,17 +61,17 @@ pub fn is_united_error(path: &syn::Path) -> bool {
 }
 
 /// Resolves a list of error paths, automatically expanding united errors into
-/// their constituent members.
+/// their constituent members recursively.
 pub fn resolve_error_paths(paths: &[syn::Path]) -> Vec<syn::Path> {
     let mut result = Vec::new();
     for path in paths {
         if let Some(members) = get_united_members(path) {
-            for member in members {
-                match syn::parse_str(&member) {
-                    Ok(p) => result.push(p),
-                    Err(_) => result.push(path.clone()),
-                }
-            }
+            let member_paths: Vec<syn::Path> = members
+                .into_iter()
+                .filter_map(|m| syn::parse_str(&m).ok())
+                .collect();
+            // 递归展开，支持嵌套联合类型
+            result.extend(resolve_error_paths(&member_paths));
         } else {
             result.push(path.clone());
         }

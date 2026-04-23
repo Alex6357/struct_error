@@ -61,6 +61,15 @@ pub(crate) fn throws(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut rewriter = ThrowsRewriter;
     rewriter.visit_block_mut(&mut item_fn.block);
 
+    // 单独处理顶层 block 的尾部表达式，避免嵌套 block 被重复包装
+    if let Some(last) = item_fn.block.stmts.last_mut()
+        && let syn::Stmt::Expr(expr, semi) = last
+        && semi.is_none()
+    {
+        let wrapped = rewriter.wrap_tail_expr(expr);
+        *expr = wrapped;
+    }
+
     // 重写函数签名
     item_fn.sig.output = syn::ReturnType::Type(
         syn::Token![->](Span::call_site()),
@@ -241,15 +250,8 @@ impl VisitMut for ThrowsRewriter {
             self.visit_stmt_mut(stmt);
         }
 
-        // 处理尾部表达式
-        if let Some(last) = node.stmts.last_mut()
-            && let syn::Stmt::Expr(expr, semi) = last
-            && semi.is_none()
-        {
-            // 这是尾部表达式，需要包装
-            let wrapped = self.wrap_tail_expr(expr);
-            *expr = wrapped;
-        }
+        // 注意：不在此处包装尾部表达式，以避免对嵌套 block（如 match arm、if 分支）
+        // 进行重复包装。顶层 block 的尾部表达式包装在 throws() 函数中统一处理。
     }
 }
 

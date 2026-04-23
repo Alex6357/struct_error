@@ -121,41 +121,25 @@ pub(crate) fn match_error(input: TokenStream) -> TokenStream {
                     .into();
                 }
 
-                // 展开联合类型为成员 arms
-                if let Some(members) = crate::registry::get_united_members(&path) {
-                    for member in members {
-                        if explicit_paths.contains(&member) {
-                            // 显式 arm 优先，跳过该成员的展开
-                            continue;
-                        }
-                        let member_path: syn::Path = match syn::parse_str(&member) {
-                            Ok(p) => p,
-                            Err(_) => {
-                                return syn::Error::new_spanned(
-                                    &arm.pat,
-                                    format!(
-                                        "match_error: invalid member path `{}` in united error",
-                                        member
-                                    ),
-                                )
-                                .to_compile_error()
-                                .into();
-                            }
-                        };
-                        error_paths.push(member_path.clone());
-                        error_arm_data.push(ErrorArmData {
-                            path: member_path.clone(),
-                            pat: make_bare_pat(&member_path),
-                            guard: arm.guard.clone(),
-                            body: arm.body.clone(),
-                        });
-                    }
-                }
+                // 递归展开联合类型为成员 arms
+                expand_united_arm(
+                    &path,
+                    &arm.guard,
+                    &arm.body,
+                    &explicit_paths,
+                    &mut error_paths,
+                    &mut error_arm_data,
+                );
             } else {
+                let pat = if is_bare_path(&arm.pat) {
+                    make_bare_pat(&path)
+                } else {
+                    arm.pat.clone()
+                };
                 error_paths.push(path.clone());
                 error_arm_data.push(ErrorArmData {
                     path,
-                    pat: arm.pat.clone(),
+                    pat,
                     guard: arm.guard.clone(),
                     body: arm.body.clone(),
                 });
@@ -235,6 +219,44 @@ struct ErrorArmData {
     body: Box<syn::Expr>,
 }
 
+/// 递归展开联合类型路径为原子错误路径，并生成对应的 ErrorArmData。
+fn expand_united_arm(
+    path: &syn::Path,
+    guard: &Option<(syn::token::If, Box<syn::Expr>)>,
+    body: &syn::Expr,
+    explicit_paths: &std::collections::HashSet<String>,
+    error_paths: &mut Vec<syn::Path>,
+    error_arm_data: &mut Vec<ErrorArmData>,
+) {
+    if let Some(members) = crate::registry::get_united_members(path) {
+        for member in members {
+            if explicit_paths.contains(&member) {
+                continue;
+            }
+            let member_path: syn::Path = match syn::parse_str(&member) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            expand_united_arm(
+                &member_path,
+                guard,
+                body,
+                explicit_paths,
+                error_paths,
+                error_arm_data,
+            );
+        }
+    } else {
+        error_paths.push(path.clone());
+        error_arm_data.push(ErrorArmData {
+            path: path.clone(),
+            pat: make_bare_pat(path),
+            guard: guard.clone(),
+            body: Box::new(body.clone()),
+        });
+    }
+}
+
 /// 对 match arm 的 pattern 进行分类
 fn classify_pat(pat: &syn::Pat) -> ArmType {
     match pat {
@@ -298,11 +320,18 @@ fn is_bare_path(pat: &syn::Pat) -> bool {
 }
 
 /// 从路径生成一个 bare path pattern。
+/// 对 named / unit struct 使用 `Path { .. }`，避免 unit struct 与带字段 struct 的模式不匹配。
 fn make_bare_pat(path: &syn::Path) -> syn::Pat {
-    syn::Pat::Path(syn::PatPath {
+    syn::Pat::Struct(syn::PatStruct {
         attrs: Vec::new(),
         qself: None,
         path: path.clone(),
+        brace_token: syn::token::Brace(proc_macro2::Span::call_site()),
+        fields: syn::punctuated::Punctuated::new(),
+        rest: Some(syn::PatRest {
+            attrs: Vec::new(),
+            dot2_token: syn::token::DotDot::default(),
+        }),
     })
 }
 
